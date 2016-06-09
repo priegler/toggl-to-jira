@@ -1,6 +1,10 @@
+import org.joda.time.DateTime;
+
 import java.io.Console;
 import java.io.IOException;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Created by Peter on 09.06.2016.
@@ -54,5 +58,28 @@ public class Util {
                 e.printStackTrace();
             }
         }
+    }
+
+    public static DateTime readTimeframe(String input, boolean fromStartOfday) {
+        Pattern p = Pattern.compile("(\\d\\d)-(\\d\\d)-(\\d\\d\\d\\d)");
+        Matcher m = p.matcher(input);
+        if(m.find()){
+            boolean b = m.matches();
+            if(b && m.groupCount() >= 2){
+                int day = Integer.parseInt(m.group(1));
+                int month = Integer.parseInt(m.group(2));
+                int year = Integer.parseInt(m.group(3));
+                DateTime dateTime = new DateTime().withDate(year, month, day);
+//                from = from.withDayOfMonth(day);
+//                from = from.withMonthOfYear(month);
+//                from = from.withYear(year);
+                if(fromStartOfday)
+                    dateTime = dateTime.withTimeAtStartOfDay();
+                else
+                    dateTime.plusDays(1).withTimeAtStartOfDay();
+                return dateTime;
+            }
+        }
+        return null;
     }
 }

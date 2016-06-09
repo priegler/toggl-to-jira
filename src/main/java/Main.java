@@ -1,9 +1,7 @@
 import ch.simas.jtoggl.*;
-import ch.simas.jtoggl.Project;
 import net.rcarz.jiraclient.*;
 import org.joda.time.DateTime;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -18,32 +16,39 @@ public class Main {
 
     private static final String togglApiToken = "a97b5fd26a389f8bf9113cb8d0d1c12e";
     private static ch.simas.jtoggl.JToggl jToggl;
-    private static String sUsername;
-    private static String sPassword;
+    private static String sUsername = "priegler"; // do not check in version control
+    private static String sPassword = "$uD0#jira"; // do not check in version control
 
 
     public static void main(String[] args) {
         do {
             System.out.println("Welcome to the 9yards Toogl-To-Jira");
+            initJira();
+            System.out.println("1 ...migrate timeentries of today");
+            System.out.println("2 ...Migrate timeentries for a given timespan");
+            System.out.println("9 ...quit");
+            int input = Util.readIntFromStdin();
+            if(input == 9){
+                break;
+            }
+            else if(input == 1){
+                migrateTodayTimeEntries();
+            }
+            else if(input == 2){
+                askForTimeframe();
+            }
+        } while(true);
+    }
+
+    private static void initJira() {
+        if(jira == null) {
             if(sUsername == null || sPassword == null){
                 askForCredentials();
             }
             else {
-                System.out.println("1 ...migrate timeentries of today");
-                System.out.println("2 ...Migrate timeentries for a given timespan");
-                System.out.println("9 ...quit");
-                int input = Util.readIntFromStdin();
-                if(input == 9){
-                    break;
-                }
-                else if(input == 1){
-                    migrateTodayTimeentries();
-                }
-                else if(input == 2){
-                    askForTimeframe();
-                }
+                jira = createJiraInstance(sUsername, sPassword);
             }
-        } while(true);
+        }
     }
 
     private static void askForCredentials() {
@@ -52,13 +57,17 @@ public class Main {
         String username = Util.readStringFromStdin();
         System.out.println("password: ");
         String password = Util.readPasswordFromStdin();
-        BasicCredentials creds = new BasicCredentials(username, password);
+        jira = createJiraInstance(username, password);
+    }
 
+    private static JiraClient createJiraInstance(String username, String password) {
         try {
-            jira = new JiraClient(JIRA_SERVER_URL, creds);
-            jira.getIssue("INT-1");
+            BasicCredentials creds = new BasicCredentials(username, password);
+            JiraClient jiraClient = new JiraClient(JIRA_SERVER_URL, creds);
+            jiraClient.getIssue("INT-1"); // this will throw an exception if something is wrong with the credentials
             sPassword = password;
             sUsername = username;
+            return jiraClient;
         }
         catch(Exception exception) {
             if(exception instanceof JiraException) {
@@ -76,50 +85,37 @@ public class Main {
                 }
             }
         }
+        System.exit(0);
+        return null;
     }
 
     private static void askForTimeframe() {
         System.out.println("enter start date (DD-MM-JJJJ)");
         String input = Util.readLineFromStdin();
-        Pattern p = Pattern.compile("(\\d\\d)-(\\d\\d)-(\\d\\d\\d\\d)");
-        Matcher m = p.matcher(input);
-        if(m.find()){
-            boolean b = m.matches();
-            if(b && m.groupCount() >= 2){
-                int day = Integer.parseInt(m.group(1));
-                int month = Integer.parseInt(m.group(1));
-                int year = Integer.parseInt(m.group(1));
-                DateTime from = new DateTime().withDate(year, month, day);
-                from = from.withTimeAtStartOfDay();
-                migrateTimeEntris(from);
-                return;
-            }
+        DateTime from = Util.readTimeframe(input, true);
+        if(from == null){
+            System.out.println("ERROR: Date could not be parsed");
         }
-        System.out.println("ERROR: Date could not be parsed");
-    }
+        else {
+            migrateTimeEntris(from);
+        }
 
+    }
 
     private static void migrateTimeEntris(DateTime from){
         System.out.println("enter end date (DD-MM-JJJJ)");
         String input = Util.readLineFromStdin();
-        Pattern p = Pattern.compile("(\\d\\d)-(\\d\\d)-(\\d\\d\\d\\d)");
-        Matcher m = p.matcher(input);
-        if(m.find()){
-            boolean b = m.matches();
-            if(b && m.groupCount() >= 2){
-                int day = Integer.parseInt(m.group(1));
-                int month = Integer.parseInt(m.group(1));
-                int year = Integer.parseInt(m.group(1));
-                DateTime to = new DateTime().withDate(year, month, day);
-                to= to.plusDays(1).withTimeAtStartOfDay();
-                migrateTimeEntries(from, to);
-                return;
-            }
+        DateTime to = Util.readTimeframe(input, false);
+        if(from == null){
+            System.out.println("ERROR: Date could not be parsed");
+        }
+        else {
+            migrateTimeEntries(from, to);
         }
         System.out.println("ERROR: Date could not be parsed");
     }
 
-    private static void migrateTodayTimeentries() {
+    private static void migrateTodayTimeEntries() {
         DateTime from = new DateTime().withTimeAtStartOfDay();
         DateTime to = new DateTime().plusDays(1).withTimeAtStartOfDay();
         migrateTimeEntries(from, to);
@@ -148,9 +144,9 @@ public class Main {
                 }
                 else {
                     try {
-                        issue =  jira.getIssue(issueKey);
+                        issue = jira.getIssue(issueKey);
                     } catch (JiraException ex) {
-                        ex.printStackTrace();
+                        System.out.println(ex.getMessage());
                         // issue does probably not exist, create an issue with that number?
                         createNewIssue = askForCreationOfNewIssue(issueKey, descriptionWithoutIssueKey);
                     }
@@ -167,7 +163,6 @@ public class Main {
                             System.out.println("Issue created: " + issue.getKey());
                         }
                     }
-
                 }
                 if(issue == null && !createNewIssue){
                     issue = askForIssue(jira);
@@ -193,28 +188,31 @@ public class Main {
     }
 
     private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, Date start, long timeSpentSeconds) {
-        //TODO: uncomment
-//        try {
-//            issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
-//        } catch (JiraException ex) {
-//            ex.printStackTrace();
-//        }
+        if(start == null){
+            // TODO: ask for time
+            System.out.println("no time set for issue...");
+        }
+
+        try {
+            issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
+        } catch (JiraException ex) {
+            ex.printStackTrace();
+        }
     }
 
     private static Issue askForIssue(JiraClient jira) {
         net.rcarz.jiraclient.Issue issue = null;
 
         do {
-
-            System.out.println("To what issue do you want to add the worklog (type quit to skip)");
+            System.out.println("To what issue do you want to add the worklog (type s to skip)");
             String input = Util.readStringFromStdin();
-            if(input.equals("quit")){
+            if(input.equals("s")){
                 break;
             }
             try {
                 issue = jira.getIssue(input);
             } catch (JiraException e) {
-                e.printStackTrace();
+               System.out.println(e.getMessage());
             }
 
         } while(issue == null);
@@ -226,15 +224,15 @@ public class Main {
         net.rcarz.jiraclient.Project project = null;
 
         do {
-            System.out.println("For what project do you want to search an issue (type quit to skip)");
+            System.out.println("For what project do you want to search an issue (type s to skip)");
             String input = Util.readStringFromStdin();
-            if(input.equals("quit")){
+            if(input.equals("s")){
                 break;
             }
             try {
                 project = jira.getProject(input);
             } catch (JiraException e) {
-                e.printStackTrace();
+                System.out.println(e.getMessage());
             }
 
         } while(project == null);
@@ -268,20 +266,20 @@ public class Main {
     }
 
     public static String[] parseIssue(String togglDescription){
+        if(togglDescription == null) togglDescription = "";
         boolean jiraTaskFound = false;
         String jiraDescription = togglDescription;
+
         String jiraTask = null;
-        Pattern p = Pattern.compile("([A-Z]+\\-\\d+)\\s(.*)");
+        Pattern p = Pattern.compile("([A-Z|a-z]+\\-\\d+)\\s(.*)");
         Matcher m = p.matcher(togglDescription);
 
         if(m.find()){
-            for(int i = 1; i <= m.groupCount(); i++){
-                System.out.println(m.group(i));
-            }
             boolean b = m.matches();
             if(b && m.groupCount() >= 2){
                 jiraTaskFound = true;
                 jiraTask = m.group(1);
+                jiraTask = jiraTask.toUpperCase();
                 jiraDescription = m.group(2);
             }
         }
