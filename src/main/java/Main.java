@@ -132,6 +132,8 @@ public class Main {
 
             for(TimeEntry entry: entries){
                 String description = entry.getDescription();
+                DateTime startTime = new DateTime(entry.getStart().getTime());
+                startTime = startTime.plusHours(4);
                 System.out.println("Processing toggl entry: " + description);
                 String[] issueData = parseIssue(description);
                 String issueKey = issueData[0];
@@ -187,7 +189,9 @@ public class Main {
 
     }
 
-    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, Date start, long timeSpentSeconds) {
+    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, DateTime start, long timeSpentSeconds) {
+        System.out.println("Creating worklog with: issue " + issue.getKey() + " timeSpentInMinutes " + timeSpentSeconds / 60 + " timeStarted " + start + " desc: " + descriptionWithoutIssueKey);
+
         if(start == null){
             // TODO: ask for time
             System.out.println("no time set for issue...");
