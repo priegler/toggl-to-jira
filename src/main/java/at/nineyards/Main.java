@@ -30,10 +30,15 @@ public class Main {
     private static String sPassword;
     private static int sTimeDiff = 0;
 
+    static int created = 0;
+    static int skipped = 0;
+    static int errors = 0;
+    private static boolean skipTheRest = false;
+
 
     public static void main(String[] args) {
         System.out.println("************ Welcome to Toggl-To-Jira ************");
-        System.out.println("This is version: 0.5.0");
+        System.out.println("This is version: 0.6.0");
         configure();
 
         do {
@@ -175,9 +180,11 @@ public class Main {
 
     private static void migrateTimeEntries(DateTime from, DateTime to){
         Util.clearScreen();
-        // write your code here
+        errors = 0;
+        skipped = 0;
+        created = 0;
+        skipTheRest = false;
         System.out.println("starting to migrate time entries...");
-
         try {
 
             List<TimeEntry> entries = getTimeEntriesWithRange(from.toGregorianCalendar(), to.toGregorianCalendar());
@@ -185,6 +192,12 @@ public class Main {
             System.out.println(totalCount + " entries found:");
             int i = 0;
             for(TimeEntry entry: entries){
+                if(skipTheRest){
+                    int theRest = (totalCount-i);
+                    System.out.println("WARNING: skipping " + theRest + " further entries!");
+                    skipped += theRest;
+                    break;
+                }
                 i++;
                 String description = entry.getDescription();
                 DateTime startTime = new DateTime(entry.getStart().getTime());
@@ -232,12 +245,17 @@ public class Main {
                 }
                 else {
                     System.out.println("WARNING: Skipped worklog...");
+                    skipped++;
                 }
                 System.out.println("-------------------------------------");
                 //break; //TODO: only for testing
             }
 
-            System.out.println("DONE");
+            System.out.println("Done...");
+            System.out.println("Created: "+ created);
+            System.out.println("Errors: "+ errors);
+            System.out.println("Skipped: "+ skipped);
+
 
         } catch (JiraException ex) {
             ex.printStackTrace();
@@ -257,19 +275,22 @@ public class Main {
         }
 
         try {
-            System.out.println("Do you want to create this issue in Jira (y) or skip it (n)?");
+            System.out.println("Do you want to create this worklog in Jira (y) or skip it (n)?");
             if(askForYesOrNo()){
                 WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
                 System.out.println("Created worklog: " + worklog.toString() + ", comment: " + worklog.getComment() + ", timespent: " + worklog.getTimeSpent());
                 //System.out.println("Created worklog (NOT EXECUTED)!");
+                created++;
             }
             else {
                 System.out.println("Skipped worklog");
+                skipped++;
             }
 
 
         } catch (JiraException ex) {
             ex.printStackTrace();
+            errors++;
         }
     }
 
@@ -330,6 +351,10 @@ public class Main {
             return true;
         }
         else if(input.equals("n") || input.equals("no")){
+            return false;
+        }
+        else if(input.equals("n++") || input.equals("no++")){
+            skipTheRest = true;
             return false;
         }
         else {
