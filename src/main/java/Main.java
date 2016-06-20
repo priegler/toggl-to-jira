@@ -40,6 +40,31 @@ public class Main {
         } while(true);
     }
 
+    private static void configure() {
+        System.out.println("### Applying config from 'ttj.config'");
+        Map<String, String> config = FileReaderUtil.readConfig("ttj.config");
+        for(String key: config.keySet()){
+            String value = config.get(key);
+            if(key.equals("jira.username")){
+                sUsername = value;
+                System.out.println("jira.username = " + value);
+            }
+            else if(key.equals("jira.server_url")){
+                JIRA_SERVER_URL = value;
+                System.out.println("jira.server_url = " + value);
+            }
+            else if(key.equals("toggl.api_token")){
+                togglApiToken = value;
+                System.out.println("toggl.api_token = " + value);
+            }
+            else if(key.equals("time_diff")){
+                sTimeDiff = Integer.valueOf(value);
+                System.out.println("time_diff = " + sTimeDiff);
+            }
+        }
+        System.out.println("### Config applied!");
+    }
+
     private static void initJira() {
         if(jira == null) {
             if(sUsername == null || sPassword == null){
