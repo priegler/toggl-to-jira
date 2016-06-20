@@ -1,8 +1,13 @@
+package at.nineyards;
+
 import ch.simas.jtoggl.*;
 import net.rcarz.jiraclient.*;
 import org.joda.time.DateTime;
 
-import java.util.*;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -11,6 +16,11 @@ import java.util.regex.Pattern;
  */
 public class Main {
 
+    private static final String CONF_TIME_DIFF = "time_diff";
+    private static final String CONF_TOGGL_API = "toggl.api_token";
+    private static final String CONF_JIRA_SERVER_URL = "jira.server_url";
+    private static final String CONF_JIRA_USERNAME = "jira.username";
+
     private static String JIRA_SERVER_URL;
     private static JiraClient sJira;
 
@@ -18,7 +28,7 @@ public class Main {
     private static ch.simas.jtoggl.JToggl jToggl;
     private static String sUsername;
     private static String sPassword;
-    private static int sTimeDiff = 4;
+    private static int sTimeDiff = 0;
 
 
     public static void main(String[] args) {
@@ -28,7 +38,7 @@ public class Main {
 
         do {
             initJira();
-            System.out.println("Main menu:");
+            System.out.println("************ Main menu ************");
             System.out.println("1 ...migrate time entries of today");
             System.out.println("2 ...migrate time entries for a given time span");
             System.out.println("9 ...quit");
@@ -50,24 +60,24 @@ public class Main {
         Map<String, String> config = FileReaderUtil.readConfig("ttj.config");
         for(String key: config.keySet()){
             String value = config.get(key);
-            if(key.equals("sJira.username")){
+            if(key.equals(CONF_JIRA_USERNAME)){
                 sUsername = value;
-                System.out.println("sJira.username = " + value);
+                System.out.println("jira.username = " + value);
             }
-            else if(key.equals("sJira.server_url")){
+            else if(key.equals(CONF_JIRA_SERVER_URL)){
                 JIRA_SERVER_URL = value;
-                System.out.println("sJira.server_url = " + value);
+                System.out.println("jira.server_url = " + value);
             }
-            else if(key.equals("toggl.api_token")){
+            else if(key.equals(CONF_TOGGL_API)){
                 TOGGL_API_TOKEN = value;
                 System.out.println("toggl.api_token = " + value);
             }
-            else if(key.equals("time_diff")){
+            else if(key.equals(CONF_TIME_DIFF)){
                 sTimeDiff = Integer.valueOf(value);
                 System.out.println("time_diff = " + sTimeDiff);
             }
         }
-        if(JIRA_SERVER_URL == null) throw new RuntimeException("no sJira.server_url defined in config!");
+        if(JIRA_SERVER_URL == null) throw new RuntimeException("no jira.server_url defined in config!");
         if(TOGGL_API_TOKEN == null) throw new RuntimeException("no toggl.api_token defined in config!");
         System.out.println("### Config applied!");
     }
@@ -106,6 +116,7 @@ public class Main {
             jiraClient.getIssue("INT-1"); // this will throw an exception if something is wrong with the credentials
             sPassword = password;
             sUsername = username;
+            System.out.println("### login successful");
             return jiraClient;
         }
         catch(Exception exception) {
@@ -210,14 +221,14 @@ public class Main {
                 }
                 if(issue != null) {
                     long timeSpentSeconds = entry.getDuration();// ((int) end.getTime() / 1000) - ((int) start.getTime() / 1000);
-                    System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
+                    //System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
                     createWorklog(issue, descriptionWithoutIssueKey, startTime.toDate(), timeSpentSeconds);
                 }
                 else {
                     System.out.println("WARNING: Skipped worklog...");
                 }
                 System.out.println("-------------------------------------");
-                break; //TODO: only for testing
+                //break; //TODO: only for testing
             }
 
             System.out.println("DONE");

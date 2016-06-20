@@ -1,9 +1,38 @@
-group 'com.nineyards'
+group 'at.nineyards'
 version '0.5.0'
+
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.3'
+    }
+}
+
+apply plugin: 'com.github.johnrengelman.shadow'
 
 apply plugin: 'java'
 
+
+
+//apply plugin: 'application'
+//mainClassName = "at.nineyards.Main"
+
 sourceCompatibility = 1.5
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'at.nineyards.Main'
+    }
+}
+
+
+//task myJar(type: Jar)
+
+//artifacts {
+//    archives myJar
+//}
 
 repositories {
     mavenCentral()
@@ -14,6 +43,8 @@ repositories {
 
 dependencies {
     compile 'ch.simas.jtoggl:jtoggl-api:1.0.2-SNAPSHOT'
+    compile 'joda-time:joda-time:2.3'
+    compile files('libs/jira-client.jar')
     //compile 'net.rcarz:jira-client:0.5'
     //compile 'com.atlassian.jira:jira-rest-java-client:2.0.0'
     testCompile group: 'junit', name: 'junit', version: '4.11'

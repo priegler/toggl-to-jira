@@ -1,3 +1,5 @@
+package at.nineyards;
+
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
@@ -21,11 +23,11 @@ public class FileReaderUtil {
         String line = null;
 
         try {
-            // FileReaderUtil reads text files in the default encoding.
+            // at.nineyards.FileReaderUtil reads text files in the default encoding.
             FileReader fileReader =
                     new FileReader(fileName);
 
-            // Always wrap FileReaderUtil in BufferedReader.
+            // Always wrap at.nineyards.FileReaderUtil in BufferedReader.
             BufferedReader bufferedReader =
                     new BufferedReader(fileReader);
 

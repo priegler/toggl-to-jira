@@ -1,6 +1,6 @@
-import org.joda.time.DateTime;
+package at.nineyards;
 
-import java.io.Console;
+import org.joda.time.DateTime;
 import java.io.IOException;
 import java.util.Scanner;
 import java.util.regex.Matcher;
