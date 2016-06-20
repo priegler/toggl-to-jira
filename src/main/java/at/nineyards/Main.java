@@ -147,14 +147,17 @@ public class Main {
             System.out.println("ERROR: Date could not be parsed");
         }
         else {
-            migrateTimeEntries(from);
+            migrateTimeEntries(from, input);
         }
 
     }
 
-    private static void migrateTimeEntries(DateTime from){
-        System.out.println("enter end date (DD-MM-JJJJ)");
+    private static void migrateTimeEntries(DateTime from, String fromInput){
+        System.out.println("enter end date (DD-MM-JJJJ) or leave empty for same date as start date");
         String input = Util.readLineFromStdin();
+        if(input.trim().length() == 0)
+            input = fromInput;
+
         DateTime to = Util.readTimeframe(input, false);
         if(from == null){
             System.out.println("ERROR: Date could not be parsed");
@@ -254,7 +257,7 @@ public class Main {
         }
 
         try {
-            System.out.println("Do you want to create this issue in Jira (y) or skipp it (n)?");
+            System.out.println("Do you want to create this issue in Jira (y) or skip it (n)?");
             if(askForYesOrNo()){
                 WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
                 System.out.println("Created worklog: " + worklog.toString() + ", comment: " + worklog.getComment() + ", timespent: " + worklog.getTimeSpent());
@@ -320,10 +323,10 @@ public class Main {
         return summary;
     }
 
-    private static boolean askForYesOrNo(){
+    private static boolean askForXOrNo(String x, String xLong){
         String input = Util.readStringFromStdin();
         input = input.toLowerCase().trim();
-        if(input.equals("y") || input.equals("yes")){
+        if(input.equals(x) || input.equals(xLong)){
             return true;
         }
         else if(input.equals("n") || input.equals("no")){
@@ -335,14 +338,22 @@ public class Main {
         }
     }
 
+    private static boolean askForYesOrNo(){
+        return askForXOrNo("y", "yes");
+    }
+
+    private static boolean askForCreateOrNo(){
+        return askForXOrNo("c", "create");
+    }
+
     private static boolean askForCreationOfNewIssue(String issueKey, String descriptionWithoutIssueKey) {
-        System.out.println("Issue with key: " + issueKey + " not found.\nDo you want to create a new one for (\""+descriptionWithoutIssueKey+"\") [y yes, n no]: ");
-        return askForYesOrNo();
+        System.out.println("Issue with key: " + issueKey + " not found.\nDo you want to create a new one for (\""+descriptionWithoutIssueKey+"\") [c create, n no]: ");
+        return askForCreateOrNo();
     }
 
     private static boolean askForCreationOfNewIssue(String descriptionWithoutIssueKey) {
-        System.out.println("No issue key defined.\nDo you want to create a new one for (\"" + descriptionWithoutIssueKey + "\") [y yes, n no]: ");
-        return askForYesOrNo();
+        System.out.println("No issue key defined.\nDo you want to create a new one for (\"" + descriptionWithoutIssueKey + "\") [c create, n no]: ");
+        return askForCreateOrNo();
     }
 
     public static String[] parseIssue(String togglDescription){
