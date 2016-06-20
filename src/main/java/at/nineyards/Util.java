@@ -1,6 +1,8 @@
 package at.nineyards;
 
 import org.joda.time.DateTime;
+import org.joda.time.LocalDateTime;
+
 import java.io.IOException;
 import java.util.Scanner;
 import java.util.regex.Matcher;
@@ -73,10 +75,13 @@ public class Util {
 //                from = from.withDayOfMonth(day);
 //                from = from.withMonthOfYear(month);
 //                from = from.withYear(year);
+//                dateTime.getZone();
+                LocalDateTime ldt = dateTime.toLocalDateTime();
+
                 if(fromStartOfday)
-                    dateTime = dateTime.withTimeAtStartOfDay();
+                    dateTime = ldt.withHourOfDay(0).withMinuteOfHour(0).withSecondOfMinute(0).toDateTime(); //.withTimeAtStartOfDay();
                 else
-                    dateTime.plusDays(1).withTimeAtStartOfDay();
+                    dateTime = ldt.withHourOfDay(23).withMinuteOfHour(59).withSecondOfMinute(59).toDateTime(); //dateTime.plusDays(1).withTimeAtStartOfDay();
                 return dateTime;
             }
         }
