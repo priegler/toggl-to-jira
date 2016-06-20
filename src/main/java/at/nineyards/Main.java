@@ -147,12 +147,12 @@ public class Main {
             System.out.println("ERROR: Date could not be parsed");
         }
         else {
-            migrateTimeEntris(from);
+            migrateTimeEntries(from);
         }
 
     }
 
-    private static void migrateTimeEntris(DateTime from){
+    private static void migrateTimeEntries(DateTime from){
         System.out.println("enter end date (DD-MM-JJJJ)");
         String input = Util.readLineFromStdin();
         DateTime to = Util.readTimeframe(input, false);
@@ -162,7 +162,6 @@ public class Main {
         else {
             migrateTimeEntries(from, to);
         }
-        System.out.println("ERROR: Date could not be parsed");
     }
 
     private static void migrateTodayTimeEntries() {
@@ -179,12 +178,16 @@ public class Main {
         try {
 
             List<TimeEntry> entries = getTimeEntriesWithRange(from.toGregorianCalendar(), to.toGregorianCalendar());
-
+            int totalCount = entries.size();
+            System.out.println(totalCount + " entries found:");
+            int i = 0;
             for(TimeEntry entry: entries){
+                i++;
                 String description = entry.getDescription();
                 DateTime startTime = new DateTime(entry.getStart().getTime());
                 startTime = startTime.plusHours(sTimeDiff);
-                System.out.println("Processing toggl entry: " + description);
+                System.out.println("Processing toggl entry #" + i + " of " + totalCount + ": ");
+                System.out.println("Description: " + description);
                 String[] issueData = parseIssue(description);
                 String issueKey = issueData[0];
                 String descriptionWithoutIssueKey = issueData[1];
@@ -247,12 +250,21 @@ public class Main {
         System.out.println("Creating worklog with: issue " + issue.getKey() + " timeSpentInMinutes " + timeSpentSeconds / 60 + " timeStarted " + start + " desc: " + descriptionWithoutIssueKey);
 
         if(start == null){
-            // TODO: ask for time
-            System.out.println("no time set for issue...");
+            System.out.println("Warning: no starttime set for issue...");
         }
 
         try {
-            issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
+            System.out.println("Do you want to create this issue in Jira (y) or skipp it (n)?");
+            if(askForYesOrNo()){
+                WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
+                System.out.println("Created worklog: " + worklog.toString() + ", comment: " + worklog.getComment() + ", timespent: " + worklog.getTimeSpent());
+                //System.out.println("Created worklog (NOT EXECUTED)!");
+            }
+            else {
+                System.out.println("Skipped worklog");
+            }
+
+
         } catch (JiraException ex) {
             ex.printStackTrace();
         }
@@ -310,7 +322,17 @@ public class Main {
 
     private static boolean askForYesOrNo(){
         String input = Util.readStringFromStdin();
-        return input.contains("y");
+        input = input.toLowerCase().trim();
+        if(input.equals("y") || input.equals("yes")){
+            return true;
+        }
+        else if(input.equals("n") || input.equals("no")){
+            return false;
+        }
+        else {
+            System.out.println("Error: Input not recognized (" + input + ")");
+            return askForYesOrNo();
+        }
     }
 
     private static boolean askForCreationOfNewIssue(String issueKey, String descriptionWithoutIssueKey) {
