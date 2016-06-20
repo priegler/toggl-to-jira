@@ -11,21 +11,26 @@ import java.util.regex.Pattern;
  */
 public class Main {
 
-    private static final java.lang.String JIRA_SERVER_URL = "https://jira.9yrds.net";
-    private static JiraClient jira;
+    private static String JIRA_SERVER_URL;
+    private static JiraClient sJira;
 
-    private static final String togglApiToken = "a97b5fd26a389f8bf9113cb8d0d1c12e";
+    private static String TOGGL_API_TOKEN;
     private static ch.simas.jtoggl.JToggl jToggl;
-    private static String sUsername = "priegler"; // do not check in version control
-    private static String sPassword = "$uD0#jira"; // do not check in version control
+    private static String sUsername;
+    private static String sPassword;
+    private static int sTimeDiff = 4;
 
 
     public static void main(String[] args) {
+        System.out.println("************ Welcome to Toggl-To-Jira ************");
+        System.out.println("This is version: 0.5.0");
+        configure();
+
         do {
-            System.out.println("Welcome to the 9yards Toogl-To-Jira");
             initJira();
-            System.out.println("1 ...migrate timeentries of today");
-            System.out.println("2 ...Migrate timeentries for a given timespan");
+            System.out.println("Main menu:");
+            System.out.println("1 ...migrate time entries of today");
+            System.out.println("2 ...migrate time entries for a given time span");
             System.out.println("9 ...quit");
             int input = Util.readIntFromStdin();
             if(input == 9){
@@ -45,16 +50,16 @@ public class Main {
         Map<String, String> config = FileReaderUtil.readConfig("ttj.config");
         for(String key: config.keySet()){
             String value = config.get(key);
-            if(key.equals("jira.username")){
+            if(key.equals("sJira.username")){
                 sUsername = value;
-                System.out.println("jira.username = " + value);
+                System.out.println("sJira.username = " + value);
             }
-            else if(key.equals("jira.server_url")){
+            else if(key.equals("sJira.server_url")){
                 JIRA_SERVER_URL = value;
-                System.out.println("jira.server_url = " + value);
+                System.out.println("sJira.server_url = " + value);
             }
             else if(key.equals("toggl.api_token")){
-                togglApiToken = value;
+                TOGGL_API_TOKEN = value;
                 System.out.println("toggl.api_token = " + value);
             }
             else if(key.equals("time_diff")){
@@ -62,27 +67,36 @@ public class Main {
                 System.out.println("time_diff = " + sTimeDiff);
             }
         }
+        if(JIRA_SERVER_URL == null) throw new RuntimeException("no sJira.server_url defined in config!");
+        if(TOGGL_API_TOKEN == null) throw new RuntimeException("no toggl.api_token defined in config!");
         System.out.println("### Config applied!");
     }
 
     private static void initJira() {
-        if(jira == null) {
+        if(sJira == null) {
             if(sUsername == null || sPassword == null){
                 askForCredentials();
             }
             else {
-                jira = createJiraInstance(sUsername, sPassword);
+                sJira = createJiraInstance(sUsername, sPassword);
             }
         }
     }
 
     private static void askForCredentials() {
         System.out.println("please enter your credentials for: " + JIRA_SERVER_URL);
-        System.out.println("username: ");
-        String username = Util.readStringFromStdin();
+
+        String username = null;
+        if(sUsername == null){
+            System.out.println("username: ");
+            username = Util.readStringFromStdin();
+        }
+        else {
+            username = sUsername;
+        }
         System.out.println("password: ");
         String password = Util.readPasswordFromStdin();
-        jira = createJiraInstance(username, password);
+        sJira = createJiraInstance(username, password);
     }
 
     private static JiraClient createJiraInstance(String username, String password) {
@@ -158,7 +172,7 @@ public class Main {
             for(TimeEntry entry: entries){
                 String description = entry.getDescription();
                 DateTime startTime = new DateTime(entry.getStart().getTime());
-                startTime = startTime.plusHours(4);
+                startTime = startTime.plusHours(sTimeDiff);
                 System.out.println("Processing toggl entry: " + description);
                 String[] issueData = parseIssue(description);
                 String issueKey = issueData[0];
@@ -171,7 +185,7 @@ public class Main {
                 }
                 else {
                     try {
-                        issue = jira.getIssue(issueKey);
+                        issue = sJira.getIssue(issueKey);
                     } catch (JiraException ex) {
                         System.out.println(ex.getMessage());
                         // issue does probably not exist, create an issue with that number?
@@ -180,11 +194,11 @@ public class Main {
                 }
 
                 if(createNewIssue){
-                    net.rcarz.jiraclient.Project project = askForProject(jira);
+                    net.rcarz.jiraclient.Project project = askForProject(sJira);
                     if(project != null){
                         String summary = askForSummary();
                         if(summary != null){
-                            issue = jira.createIssue(project.getKey(), "Task")
+                            issue = sJira.createIssue(project.getKey(), "Task")
                                     .field(Field.SUMMARY, summary)
                                     .execute();
                             System.out.println("Issue created: " + issue.getKey());
@@ -192,29 +206,33 @@ public class Main {
                     }
                 }
                 if(issue == null && !createNewIssue){
-                    issue = askForIssue(jira);
+                    issue = askForIssue(sJira);
                 }
                 if(issue != null) {
                     long timeSpentSeconds = entry.getDuration();// ((int) end.getTime() / 1000) - ((int) start.getTime() / 1000);
                     System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
-                    createWorklog(issue, descriptionWithoutIssueKey, entry.getStart(), timeSpentSeconds);
+                    createWorklog(issue, descriptionWithoutIssueKey, startTime.toDate(), timeSpentSeconds);
                 }
                 else {
                     System.out.println("WARNING: Skipped worklog...");
                 }
                 System.out.println("-------------------------------------");
+                break; //TODO: only for testing
             }
 
             System.out.println("DONE");
 
         } catch (JiraException ex) {
             ex.printStackTrace();
-            //System.err.println(ex.getCause().getMessage());
         }
 
     }
 
-    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, DateTime start, long timeSpentSeconds) {
+    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, Date start, long timeSpentSeconds) {
+        if(timeSpentSeconds % 60 != 0) {
+            // no full minute -> round up
+            timeSpentSeconds += 60 - (timeSpentSeconds % 60);
+        }
         System.out.println("Creating worklog with: issue " + issue.getKey() + " timeSpentInMinutes " + timeSpentSeconds / 60 + " timeStarted " + start + " desc: " + descriptionWithoutIssueKey);
 
         if(start == null){
@@ -325,7 +343,7 @@ public class Main {
     }
 
     public static List<TimeEntry> getTimeEntriesWithRange(Calendar from, Calendar to) {
-        jToggl = new JToggl(togglApiToken, "api_token");
+        jToggl = new JToggl(TOGGL_API_TOKEN, "api_token");
         List<TimeEntry> entries = jToggl.getTimeEntries(from.getTime(), to.getTime());
         return entries;
     }
