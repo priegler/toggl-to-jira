@@ -1,6 +1,7 @@
 package at.nineyards;
 
 import ch.simas.jtoggl.*;
+import ch.simas.jtoggl.Project;
 import net.rcarz.jiraclient.*;
 import org.joda.time.DateTime;
 
@@ -17,9 +18,12 @@ import java.util.regex.Pattern;
 public class Main {
 
     private static final String CONF_TIME_DIFF = "time_diff";
-    private static final String CONF_TOGGL_API = "toggl.api_token";
+    private static final String CONF_TOGGL_API_TOKEN = "toggl.api_token";
     private static final String CONF_JIRA_SERVER_URL = "jira.server_url";
     private static final String CONF_JIRA_USERNAME = "jira.username";
+    private static final String CONF_UPDATE_TOGGL_PROJECT = "update_toggl_projects";
+    private static final String CONF_DEFAULT_ISSUE = "jira.default_issue";
+    private static boolean UPDATE_TOGGL_PROJECT = false;
 
     private static String JIRA_SERVER_URL;
     private static JiraClient sJira;
@@ -29,32 +33,38 @@ public class Main {
     private static String sUsername;
     private static String sPassword;
     private static int sTimeDiff = 0;
+    private static String DEFAULT_ISSUE;
 
     static int created = 0;
     static int skipped = 0;
     static int errors = 0;
     private static boolean skipTheRest = false;
+    private static List<Project> sProjects;
 
 
     public static void main(String[] args) {
         System.out.println("************ Welcome to Toggl-To-Jira ************");
-        System.out.println("This is version: 0.6.0");
+        System.out.println("This is version: 0.8.0");
         configure();
 
         do {
             initJira();
             System.out.println("************ Main menu ************");
             System.out.println("1 ...migrate time entries of today");
-            System.out.println("2 ...migrate time entries for a given time span");
-            System.out.println("9 ...quit");
+            System.out.println("2 ...migrate time entries of yesterday");
+            System.out.println("3 ...migrate time entries for a given time span");
+            System.out.println("0 ...quit");
             int input = Util.readIntFromStdin();
-            if(input == 9){
+            if(input == 0){
                 break;
             }
             else if(input == 1){
                 migrateTodayTimeEntries();
             }
             else if(input == 2){
+                migrateYesterdayTimeEntries();
+            }
+            else if(input == 3){
                 askForTimeframe();
             }
         } while(true);
@@ -67,23 +77,32 @@ public class Main {
             String value = config.get(key);
             if(key.equals(CONF_JIRA_USERNAME)){
                 sUsername = value;
-                System.out.println("jira.username = " + value);
+                System.out.println(CONF_JIRA_USERNAME + " = " + value);
             }
             else if(key.equals(CONF_JIRA_SERVER_URL)){
                 JIRA_SERVER_URL = value;
-                System.out.println("jira.server_url = " + value);
+                System.out.println(CONF_JIRA_SERVER_URL + " = " + value);
             }
-            else if(key.equals(CONF_TOGGL_API)){
+            else if(key.equals(CONF_TOGGL_API_TOKEN)){
                 TOGGL_API_TOKEN = value;
-                System.out.println("toggl.api_token = " + value);
+                System.out.println(CONF_TOGGL_API_TOKEN + " = " + value);
             }
             else if(key.equals(CONF_TIME_DIFF)){
                 sTimeDiff = Integer.valueOf(value);
-                System.out.println("time_diff = " + sTimeDiff);
+                System.out.println(CONF_TIME_DIFF + " = " + sTimeDiff);
+            }
+            else if(key.equals(CONF_DEFAULT_ISSUE)){
+                DEFAULT_ISSUE = value;
+                System.out.println(CONF_DEFAULT_ISSUE + " = " + DEFAULT_ISSUE);
+            }
+            else if(key.equals(CONF_UPDATE_TOGGL_PROJECT)){
+                UPDATE_TOGGL_PROJECT = value.equalsIgnoreCase("true");
+                System.out.println(CONF_UPDATE_TOGGL_PROJECT + " = " + UPDATE_TOGGL_PROJECT);
             }
         }
-        if(JIRA_SERVER_URL == null) throw new RuntimeException("no jira.server_url defined in config!");
-        if(TOGGL_API_TOKEN == null) throw new RuntimeException("no toggl.api_token defined in config!");
+        Util.checkOrThrowIfNull(CONF_JIRA_SERVER_URL, JIRA_SERVER_URL);
+        Util.checkOrThrowIfNull(CONF_TOGGL_API_TOKEN, TOGGL_API_TOKEN);
+        Util.checkOrThrowIfNull(CONF_DEFAULT_ISSUE, DEFAULT_ISSUE);
         System.out.println("### Config applied!");
     }
 
@@ -118,7 +137,7 @@ public class Main {
         try {
             BasicCredentials creds = new BasicCredentials(username, password);
             JiraClient jiraClient = new JiraClient(JIRA_SERVER_URL, creds);
-            jiraClient.getIssue("INT-1"); // this will throw an exception if something is wrong with the credentials
+            jiraClient.getIssue(DEFAULT_ISSUE); // this will throw an exception if something is wrong with the credentials
             sPassword = password;
             sUsername = username;
             System.out.println("### login successful");
@@ -178,11 +197,18 @@ public class Main {
         migrateTimeEntries(from, to);
     }
 
+    private static void migrateYesterdayTimeEntries() {
+        DateTime from = new DateTime().minusDays(1).withTimeAtStartOfDay();
+        DateTime to = new DateTime().withTimeAtStartOfDay();
+        migrateTimeEntries(from, to);
+    }
+
     private static void migrateTimeEntries(DateTime from, DateTime to){
         Util.clearScreen();
         errors = 0;
         skipped = 0;
         created = 0;
+        sProjects = null;
         skipTheRest = false;
         System.out.println("starting to migrate time entries...");
         try {
@@ -241,6 +267,9 @@ public class Main {
                 if(issue != null) {
                     long timeSpentSeconds = entry.getDuration();// ((int) end.getTime() / 1000) - ((int) start.getTime() / 1000);
                     //System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
+                    if(UPDATE_TOGGL_PROJECT){
+                        updateTogglEntry(entry, issue);
+                    }
                     createWorklog(issue, descriptionWithoutIssueKey, startTime.toDate(), timeSpentSeconds);
                 }
                 else {
@@ -263,7 +292,49 @@ public class Main {
 
     }
 
+    private static void updateTogglEntry(TimeEntry entry, Issue issue) {
+        Project togglProject = entry.getProject();
+        if(togglProject == null){
+            net.rcarz.jiraclient.Project jiraProject = issue.getProject();
+            String key = jiraProject.getKey();
+            String description = jiraProject.getDescription();
+            togglProject = findTogglProjectByKey(key);
+            if(togglProject == null){
+                togglProject = createTogglProject(key + description);
+                entry.setProject(togglProject);
+            }
+            if(togglProject != null){
+              entry.setProject(togglProject);
+              jToggl.updateTimeEntry(entry);
+            }
+        }
+    }
+
+    private static Project createTogglProject(String fullName){
+        Project newTogglProject = new Project();
+        newTogglProject.setName(fullName);
+
+        List<Workspace> ws = jToggl.getWorkspaces();
+        newTogglProject.setWorkspace(ws.get(0));
+        Project newProject = jToggl.createProject(newTogglProject);
+        sProjects.add(newProject);
+        return newProject;
+    }
+
+    private static Project findTogglProjectByKey(String key) {
+        List<Project> projects = getTogglProjects();
+        for(Project project: projects){
+            if(project.getName().startsWith(key + " ")){
+                return project;
+            }
+        }
+        return null;
+    }
+
     private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, Date start, long timeSpentSeconds) {
+        if(descriptionWithoutIssueKey == null || descriptionWithoutIssueKey.equals("")){
+            descriptionWithoutIssueKey = "Working on " + issue.getKey();
+        }
         if(timeSpentSeconds % 60 != 0) {
             // no full minute -> round up
             timeSpentSeconds += 60 - (timeSpentSeconds % 60);
@@ -387,15 +458,15 @@ public class Main {
         String jiraDescription = togglDescription;
 
         String jiraTask = null;
-        Pattern p = Pattern.compile("([A-Z|a-z]+\\-\\d+)\\s(.*)");
+        Pattern p = Pattern.compile("([A-Z|a-z]+\\-\\d+)\\s?(.*)");
         Matcher m = p.matcher(togglDescription);
 
-        if(m.find()){
-            boolean b = m.matches();
-            if(b && m.groupCount() >= 2){
-                jiraTaskFound = true;
-                jiraTask = m.group(1);
-                jiraTask = jiraTask.toUpperCase();
+        if(m.find()) {
+            //m.matches() &&
+            jiraTask = m.group(1);
+            jiraTaskFound = true;
+            jiraTask = jiraTask.toUpperCase();
+            if(m.groupCount() >= 2){
                 jiraDescription = m.group(2);
             }
         }
@@ -415,5 +486,12 @@ public class Main {
         jToggl = new JToggl(TOGGL_API_TOKEN, "api_token");
         List<TimeEntry> entries = jToggl.getTimeEntries(from.getTime(), to.getTime());
         return entries;
+    }
+
+    private static List<Project> getTogglProjects() {
+        if(sProjects == null){
+            sProjects = jToggl.getProjects();
+        }
+        return sProjects;
     }
 }

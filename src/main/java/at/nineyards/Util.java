@@ -3,6 +3,7 @@ package at.nineyards;
 import org.joda.time.DateTime;
 import org.joda.time.LocalDateTime;
 
+import java.io.Console;
 import java.io.IOException;
 import java.util.Scanner;
 import java.util.regex.Matcher;
@@ -19,14 +20,19 @@ public class Util {
     }
 
     public static String readPasswordFromStdin(){
-        //TODO: ...
-        Scanner reader = new Scanner(System.in);
-        return reader.next();
-//        Scanner reader = new Scanner(System.in);
-//        reader.
-//        Console console = System.console();
-//        char[] password = console.readPassword();
-//        return new String(password);
+        try {
+            Console console = System.console();
+            char[] password = console.readPassword();
+            return new String(password);
+        }
+        catch (Exception e){
+            //e.printStackTrace();
+            //Backup if code is run in IDE (not hidden here)
+            Scanner reader = new Scanner(System.in);
+            return reader.next();
+        }
+
+
     }
 
     public static String readLineFromStdin(){
@@ -86,5 +92,9 @@ public class Util {
             }
         }
         return null;
+    }
+
+    public static void checkOrThrowIfNull(String key, String value) {
+        if(value == null) throw new RuntimeException("no " + key + " defined in config!");
     }
 }

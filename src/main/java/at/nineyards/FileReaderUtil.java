@@ -36,8 +36,12 @@ public class FileReaderUtil {
                 if(line.isEmpty()) continue;
                 String[] properties = line.split("=");
                 if(properties.length == 2){
+
                     String key = properties[0].trim().toLowerCase();
-                    String value = properties[1].trim().replace("'", "");
+                    String valueWithComment = properties[1];
+
+                    String[] stripped = valueWithComment.split("#");
+                    String value = stripped[0].trim().replace("'", "");
                     config.put(key, value);
                 }
                 else {
