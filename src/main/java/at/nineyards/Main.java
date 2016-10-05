@@ -44,58 +44,120 @@ public class Main {
 
     public static void main(String[] args) {
         System.out.println("************ Welcome to Toggl-To-Jira ************");
-        System.out.println("This is version: 0.8.0");
+        System.out.println("This is version: 0.8.1");
         configure();
 
         do {
             initJira();
             System.out.println("************ Main menu ************");
-            System.out.println("1 ...migrate time entries of today");
-            System.out.println("2 ...migrate time entries of yesterday");
-            System.out.println("3 ...migrate time entries for a given time span");
+            System.out.println("1 ...migrate time entries of today (toggle -> jira)");
+            System.out.println("2 ...migrate time entries of yesterday  (toggle -> jira)");
+            System.out.println("3 ...migrate time entries for a given time span  (toggle -> jira)");
+            System.out.println("99 ...delete duplicated entries (jira)");
             System.out.println("0 ...quit");
             int input = Util.readIntFromStdin();
-            if(input == 0){
+            if (input == 0) {
                 break;
-            }
-            else if(input == 1){
+            } else if (input == 1) {
                 migrateTodayTimeEntries();
-            }
-            else if(input == 2){
+            } else if (input == 2) {
                 migrateYesterdayTimeEntries();
+            } else if (input == 3) {
+                deleteDuplicateWorklogs();
+            } else if (input == 99) {
+                deleteDuplicateWorklogs();
+            } else {
+                System.out.println("Input not recognized, please try again!");
             }
-            else if(input == 3){
-                askForTimeframe();
+        } while (true);
+    }
+
+    private static void deleteDuplicateWorklogs() {
+        System.out.println("Delete duplicated Worklog from Jira");
+        askForTimeframe(new TimeframeCallback() {
+            public void onTimeFrameSet(DateTime timeStarting, DateTime timeEnding) {
+                performDeleteDuplicateWorklogs(timeStarting, timeEnding);
             }
-        } while(true);
+
+            public void onExit() {
+                // do nothing...
+            }
+        });
+    }
+
+
+    private static void performDeleteDuplicateWorklogs(DateTime timeStarting, DateTime timeEnding) {
+
+        String startDate = String.format("%04d-%02d-%02d", timeStarting.getYear(), timeStarting.getMonthOfYear(), timeStarting.getDayOfMonth()); // yyyy-MM-dd
+        String endDate = String.format("%04d-%02d-%02d", timeEnding.getYear(), timeEnding.getMonthOfYear(), timeEnding.getDayOfMonth()); // yyyy-MM-dd
+
+        System.out.println("Deleting worklogs for timespan (" + startDate + " to " + endDate +")");
+        System.out.println("Do you want to continue yes (y) or no (n)");
+        if(!askForYesOrNo()){
+            System.out.println("exiting");
+            return;
+        }
+
+        skipTheRest = false;
+        int count = 1;
+        int deleted = 0, errorsDeleting = 0;
+        try {
+            System.out.println("fetching worklogs for july");
+            RestClient restClient = sJira.getRestClient();
+            List<TempoWorkLog> worklogs = Tempo.getWorklogs(restClient, startDate, endDate, "priegler"); // yyyy-MM-dd
+
+            if (worklogs != null) {
+                for (int i = 0; i < worklogs.size() - 1; i++) {
+                    TempoWorkLog workLog1 = worklogs.get(i);
+                    TempoWorkLog workLog2 = worklogs.get(i + 1);
+
+                    if (workLog1.isDuplicate(workLog2)) {
+                        System.out.println(workLog1.getComment() + " == " + workLog2.getComment());
+                        System.out.println("Deleting duplicated worklog " + workLog2);
+                        boolean wasDeleted = Tempo.deleteWorklog(restClient, ""+workLog2.getId());
+                        if(wasDeleted){
+                            System.out.println("deleted!");
+                            deleted++;
+                        }
+                        else {
+                            System.out.println("An error occurred while deleting worklog: " + workLog2);
+                            errorsDeleting++;
+                        }
+                    }
+                    count++;
+                }
+            }
+
+        } catch (JiraException e) {
+            e.printStackTrace();
+        }
+        System.out.println("processed: #" + count);
+        System.out.println("deleted: #" + deleted);
+        System.out.println("errorsDeleting: #" + errorsDeleting);
+
     }
 
     private static void configure() {
         System.out.println("### Applying config from 'ttj.config'");
         Map<String, String> config = FileReaderUtil.readConfig("ttj.config");
-        for(String key: config.keySet()){
+        for (String key : config.keySet()) {
             String value = config.get(key);
-            if(key.equals(CONF_JIRA_USERNAME)){
+            if (key.equals(CONF_JIRA_USERNAME)) {
                 sUsername = value;
                 System.out.println(CONF_JIRA_USERNAME + " = " + value);
-            }
-            else if(key.equals(CONF_JIRA_SERVER_URL)){
+            } else if (key.equals(CONF_JIRA_SERVER_URL)) {
                 JIRA_SERVER_URL = value;
                 System.out.println(CONF_JIRA_SERVER_URL + " = " + value);
-            }
-            else if(key.equals(CONF_TOGGL_API_TOKEN)){
+            } else if (key.equals(CONF_TOGGL_API_TOKEN)) {
                 TOGGL_API_TOKEN = value;
                 System.out.println(CONF_TOGGL_API_TOKEN + " = " + value);
-            }
-            else if(key.equals(CONF_TIME_DIFF)){
+            } else if (key.equals(CONF_TIME_DIFF)) {
                 sTimeDiff = Integer.valueOf(value);
                 System.out.println(CONF_TIME_DIFF + " = " + sTimeDiff);
-            }
-            else if(key.equals(CONF_DEFAULT_ISSUE)){
+            } else if (key.equals(CONF_DEFAULT_ISSUE)) {
                 DEFAULT_ISSUE = value;
                 System.out.println(CONF_DEFAULT_ISSUE + " = " + DEFAULT_ISSUE);
-            }
-            else if(key.equals(CONF_UPDATE_TOGGL_PROJECT)){
+            } else if (key.equals(CONF_UPDATE_TOGGL_PROJECT)) {
                 UPDATE_TOGGL_PROJECT = value.equalsIgnoreCase("true");
                 System.out.println(CONF_UPDATE_TOGGL_PROJECT + " = " + UPDATE_TOGGL_PROJECT);
             }
@@ -107,11 +169,10 @@ public class Main {
     }
 
     private static void initJira() {
-        if(sJira == null) {
-            if(sUsername == null || sPassword == null){
+        if (sJira == null) {
+            if (sUsername == null || sPassword == null) {
                 askForCredentials();
-            }
-            else {
+            } else {
                 sJira = createJiraInstance(sUsername, sPassword);
             }
         }
@@ -121,11 +182,10 @@ public class Main {
         System.out.println("please enter your credentials for: " + JIRA_SERVER_URL);
 
         String username = null;
-        if(sUsername == null){
+        if (sUsername == null) {
             System.out.println("username: ");
             username = Util.readStringFromStdin();
-        }
-        else {
+        } else {
             username = sUsername;
         }
         System.out.println("password: ");
@@ -142,19 +202,16 @@ public class Main {
             sUsername = username;
             System.out.println("### login successful");
             return jiraClient;
-        }
-        catch(Exception exception) {
-            if(exception instanceof JiraException) {
+        } catch (Exception exception) {
+            if (exception instanceof JiraException) {
                 try {
                     int status = ((RestException) exception.getCause()).getHttpStatusCode();
-                    if(status == 403){
+                    if (status == 403) {
                         System.out.println("Authorization failed!");
+                    } else {
+                        System.out.println("Something went wrong! Error code: " + status);
                     }
-                    else {
-                        System.out.println("Something went wrong! Error code: "+status);
-                    }
-                }
-                catch (Exception e){
+                } catch (Exception e) {
                     System.out.println("Something went wrong!");
                 }
             }
@@ -163,32 +220,74 @@ public class Main {
         return null;
     }
 
-    private static void askForTimeframe() {
-        System.out.println("enter start date (DD-MM-JJJJ)");
-        String input = Util.readLineFromStdin();
-        DateTime from = Util.readTimeframe(input, true);
-        if(from == null){
-            System.out.println("ERROR: Date could not be parsed");
-        }
-        else {
-            migrateTimeEntries(from, input);
-        }
 
+    /**
+     *  method to input startDate and endDate and return to callback after those two
+     *
+     * @param callback the callback that is called after both dates are entered or if the users exits
+     */
+    private static void askForTimeframe(TimeframeCallback callback) {
+        askForTimeframe(callback, null);
     }
 
-    private static void migrateTimeEntries(DateTime from, String fromInput){
-        System.out.println("enter end date (DD-MM-JJJJ) or leave empty for same date as start date");
-        String input = Util.readLineFromStdin();
-        if(input.trim().length() == 0)
-            input = fromInput;
 
-        DateTime to = Util.readTimeframe(input, false);
-        if(from == null){
+    /**
+     * helper method for askForTimeframe(TimeframeCallback callback)
+     * @param callback
+     * @param start
+     */
+    private static void askForTimeframe(TimeframeCallback callback, DateTime start) {
+        DateTime now = DateTime.now();
+        if(start == null){ // start date will be entered
+            System.out.println("enter start date (DD-MM with auto year set to " + now.getYear()  + " or DD-MM-JJJJ) [or enter \"q\" to quit]");
+        }
+        else { // end date will be entered
+            System.out.println("enter end date or leave empty for same date as start date [or enter \"q\" to quit]");
+        }
+
+        String input = Util.readLineFromStdin();
+
+        if(Util.isShortTimeFormat(input)){
+            input = input.concat("-" + now.getYear());
+        }
+        DateTime dateTime;
+        if(input.trim().length() == 0 && start != null) {
+            dateTime = start;
+        }
+        else {
+            dateTime = Util.readTimeframe(input, true);
+        }
+
+        if(dateTime == null){
             System.out.println("ERROR: Date could not be parsed");
         }
         else {
-            migrateTimeEntries(from, to);
+            if(input.equals("q")){
+                callback.onExit();
+            }
+            else if(start == null) {
+                askForTimeframe(callback, dateTime);
+            }
+            else {
+                callback.onTimeFrameSet(start, dateTime);
+            }
+
         }
+    }
+
+
+
+    private static void migrateTimeEntries(DateTime from, String fromInput){
+        System.out.println("Migrate Worklog entries Toggl -> Jira");
+        askForTimeframe(new TimeframeCallback() {
+            public void onTimeFrameSet(DateTime timeStarting, DateTime timeEnding) {
+                migrateTimeEntries(timeStarting, timeEnding);
+            }
+
+            public void onExit() {
+                // do nothing...
+            }
+        });
     }
 
     private static void migrateTodayTimeEntries() {
@@ -226,6 +325,7 @@ public class Main {
                 }
                 i++;
                 String description = entry.getDescription();
+                System.out.println("start Date:::::::> "+entry.getStart());
                 DateTime startTime = new DateTime(entry.getStart().getTime());
                 startTime = startTime.plusHours(sTimeDiff);
                 System.out.println("Processing toggl entry #" + i + " of " + totalCount + ": ");
@@ -270,7 +370,7 @@ public class Main {
                     if(UPDATE_TOGGL_PROJECT){
                         updateTogglEntry(entry, issue);
                     }
-                    createWorklog(issue, descriptionWithoutIssueKey, startTime.toDate(), timeSpentSeconds);
+                    createWorklog(issue, descriptionWithoutIssueKey, startTime, timeSpentSeconds);
                 }
                 else {
                     System.out.println("WARNING: Skipped worklog...");
@@ -331,7 +431,7 @@ public class Main {
         return null;
     }
 
-    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, Date start, long timeSpentSeconds) {
+    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, DateTime start, long timeSpentSeconds) {
         if(descriptionWithoutIssueKey == null || descriptionWithoutIssueKey.equals("")){
             descriptionWithoutIssueKey = "Working on " + issue.getKey();
         }
@@ -349,7 +449,7 @@ public class Main {
             System.out.println("Do you want to create this worklog in Jira (y) or skip it (n)?");
             if(askForYesOrNo()){
                 WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
-                System.out.println("Created worklog: " + worklog.toString() + ", comment: " + worklog.getComment() + ", timespent: " + worklog.getTimeSpent());
+                System.out.println("Created worklog " + worklog.getComment() + ", started: " + worklog.getStarted() + ", timespent: " + worklog.getTimeSpent() );
                 //System.out.println("Created worklog (NOT EXECUTED)!");
                 created++;
             }

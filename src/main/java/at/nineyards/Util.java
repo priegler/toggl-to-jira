@@ -43,7 +43,14 @@ public class Util {
 
     public static int readIntFromStdin(){
         Scanner reader = new Scanner(System.in);
-        return reader.nextInt();
+        try {
+            return reader.nextInt();
+        }
+        catch (Exception e){
+            //e.printStackTrace();
+        }
+        return -1;
+
     }
 
     public static void clearScreen() {
@@ -67,6 +74,16 @@ public class Util {
             }
         }
     }
+
+    public static boolean isShortTimeFormat(String input) {
+        Pattern p = Pattern.compile("(\\d\\d)-(\\d\\d)");
+        Matcher m = p.matcher(input);
+        if (m.find()) {
+            return m.matches();
+        }
+        return false;
+    }
+
 
     public static DateTime readTimeframe(String input, boolean fromStartOfday) {
         Pattern p = Pattern.compile("(\\d\\d)-(\\d\\d)-(\\d\\d\\d\\d)");
