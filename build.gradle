@@ -1,5 +1,5 @@
 group 'at.nineyards'
-version '0.9.0'
+version '0.9.0' // also change output in Main.java file!
 
 buildscript {
     repositories {
@@ -11,13 +11,7 @@ buildscript {
 }
 
 apply plugin: 'com.github.johnrengelman.shadow'
-
 apply plugin: 'java'
-
-
-
-//apply plugin: 'application'
-//mainClassName = "at.nineyards.Main"
 
 sourceCompatibility = 1.5
 
@@ -26,13 +20,6 @@ jar {
         attributes 'Main-Class': 'at.nineyards.Main'
     }
 }
-
-
-//task myJar(type: Jar)
-
-//artifacts {
-//    archives myJar
-//}
 
 repositories {
     mavenCentral()

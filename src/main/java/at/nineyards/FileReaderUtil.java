@@ -33,7 +33,7 @@ public class FileReaderUtil {
 
             while((line = bufferedReader.readLine()) != null) {
                 if(line.startsWith("#")) continue;
-                if(line.isEmpty()) continue;
+                if(line.length() == 0) continue;
                 String[] properties = line.split("=");
                 if(properties.length == 2){
 
