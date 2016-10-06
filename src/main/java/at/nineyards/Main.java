@@ -5,10 +5,7 @@ import ch.simas.jtoggl.Project;
 import net.rcarz.jiraclient.*;
 import org.joda.time.DateTime;
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,8 +19,11 @@ public class Main {
     private static final String CONF_JIRA_SERVER_URL = "jira.server_url";
     private static final String CONF_JIRA_USERNAME = "jira.username";
     private static final String CONF_UPDATE_TOGGL_PROJECT = "update_toggl_projects";
+    private static final String CONF_TOGGL_PROJECT_TO_IGNORE = "toggle.ignore_project";
     private static final String CONF_DEFAULT_ISSUE = "jira.default_issue";
     private static boolean UPDATE_TOGGL_PROJECT = false;
+    private static String TOGGL_PROJECT_TO_IGNORE = "";
+    static List<String> sProjectsToIgnore;
 
     private static String JIRA_SERVER_URL;
     private static JiraClient sJira;
@@ -35,11 +35,13 @@ public class Main {
     private static int sTimeDiff = 0;
     private static String DEFAULT_ISSUE;
 
-    static int created = 0;
-    static int skipped = 0;
-    static int errors = 0;
+    private static int created = 0;
+    private static int skipped = 0;
+    private static int errors = 0;
+    private static int skippedExcludedProjectWorklog = 0;
+
     private static boolean skipTheRest = false;
-    private static List<Project> sProjects;
+    private static List<Project> sProjects = new ArrayList<Project>();
 
 
     public static void main(String[] args) {
@@ -63,7 +65,7 @@ public class Main {
             } else if (input == 2) {
                 migrateYesterdayTimeEntries();
             } else if (input == 3) {
-                deleteDuplicateWorklogs();
+                migrateTimeEntries();
             } else if (input == 99) {
                 deleteDuplicateWorklogs();
             } else {
@@ -83,58 +85,6 @@ public class Main {
                 // do nothing...
             }
         });
-    }
-
-
-    private static void performDeleteDuplicateWorklogs(DateTime timeStarting, DateTime timeEnding) {
-
-        String startDate = String.format("%04d-%02d-%02d", timeStarting.getYear(), timeStarting.getMonthOfYear(), timeStarting.getDayOfMonth()); // yyyy-MM-dd
-        String endDate = String.format("%04d-%02d-%02d", timeEnding.getYear(), timeEnding.getMonthOfYear(), timeEnding.getDayOfMonth()); // yyyy-MM-dd
-
-        System.out.println("Deleting worklogs for timespan (" + startDate + " to " + endDate +")");
-        System.out.println("Do you want to continue yes (y) or no (n)");
-        if(!askForYesOrNo()){
-            System.out.println("exiting");
-            return;
-        }
-
-        skipTheRest = false;
-        int count = 1;
-        int deleted = 0, errorsDeleting = 0;
-        try {
-            System.out.println("fetching worklogs for july");
-            RestClient restClient = sJira.getRestClient();
-            List<TempoWorkLog> worklogs = Tempo.getWorklogs(restClient, startDate, endDate, "priegler"); // yyyy-MM-dd
-
-            if (worklogs != null) {
-                for (int i = 0; i < worklogs.size() - 1; i++) {
-                    TempoWorkLog workLog1 = worklogs.get(i);
-                    TempoWorkLog workLog2 = worklogs.get(i + 1);
-
-                    if (workLog1.isDuplicate(workLog2)) {
-                        System.out.println(workLog1.getComment() + " == " + workLog2.getComment());
-                        System.out.println("Deleting duplicated worklog " + workLog2);
-                        boolean wasDeleted = Tempo.deleteWorklog(restClient, ""+workLog2.getId());
-                        if(wasDeleted){
-                            System.out.println("deleted!");
-                            deleted++;
-                        }
-                        else {
-                            System.out.println("An error occurred while deleting worklog: " + workLog2);
-                            errorsDeleting++;
-                        }
-                    }
-                    count++;
-                }
-            }
-
-        } catch (JiraException e) {
-            e.printStackTrace();
-        }
-        System.out.println("processed: #" + count);
-        System.out.println("deleted: #" + deleted);
-        System.out.println("errorsDeleting: #" + errorsDeleting);
-
     }
 
     private static void configure() {
@@ -160,6 +110,10 @@ public class Main {
             } else if (key.equals(CONF_UPDATE_TOGGL_PROJECT)) {
                 UPDATE_TOGGL_PROJECT = value.equalsIgnoreCase("true");
                 System.out.println(CONF_UPDATE_TOGGL_PROJECT + " = " + UPDATE_TOGGL_PROJECT);
+            } else if (key.equals(CONF_TOGGL_PROJECT_TO_IGNORE)) {
+                TOGGL_PROJECT_TO_IGNORE = value;
+                sProjectsToIgnore = Arrays.asList(TOGGL_PROJECT_TO_IGNORE.split(","));
+                System.out.println(CONF_TOGGL_PROJECT_TO_IGNORE + " = " + sProjectsToIgnore);
             }
         }
         Util.checkOrThrowIfNull(CONF_JIRA_SERVER_URL, JIRA_SERVER_URL);
@@ -277,7 +231,7 @@ public class Main {
 
 
 
-    private static void migrateTimeEntries(DateTime from, String fromInput){
+    private static void migrateTimeEntries(){
         System.out.println("Migrate Worklog entries Toggl -> Jira");
         askForTimeframe(new TimeframeCallback() {
             public void onTimeFrameSet(DateTime timeStarting, DateTime timeEnding) {
@@ -303,19 +257,28 @@ public class Main {
     }
 
     private static void migrateTimeEntries(DateTime from, DateTime to){
-        Util.clearScreen();
+        Util.clearScreen(); //TODO: does not always work
         errors = 0;
         skipped = 0;
         created = 0;
+        skippedExcludedProjectWorklog = 0;
         sProjects = null;
         skipTheRest = false;
-        System.out.println("starting to migrate time entries...");
-        try {
 
+        String startDateeHumanReadable = getHumanReadableDateTimeString(from);
+        String endDateeHumanReadable = getHumanReadableDateTimeString(to);
+        System.out.println("Migrating worklogs for timespan (" + startDateeHumanReadable + " to " + endDateeHumanReadable +")");
+        System.out.println("Do you want to auto-migrate (y) all worklos or confirm each one manually (n)");
+        boolean autoMigrate = askForYesOrNo();
+
+        try {
+            to = to.plusDays(1).withTimeAtStartOfDay(); // allways take full days into account
             List<TimeEntry> entries = getTimeEntriesWithRange(from.toGregorianCalendar(), to.toGregorianCalendar());
             int totalCount = entries.size();
             System.out.println(totalCount + " entries found:");
             int i = 0;
+            ArrayList<TimeEntry> malformedEntries = new ArrayList<TimeEntry>();
+            ArrayList<Integer> malformedIndex = new ArrayList<Integer>();
             for(TimeEntry entry: entries){
                 if(skipTheRest){
                     int theRest = (totalCount-i);
@@ -323,9 +286,14 @@ public class Main {
                     skipped += theRest;
                     break;
                 }
+                if(i == 0) System.out.println("-------------------------------------");
                 i++;
+                if(isExcludedProject(entry)){
+                    skippedExcludedProjectWorklog++;
+                    return;
+                }
+
                 String description = entry.getDescription();
-                System.out.println("start Date:::::::> "+entry.getStart());
                 DateTime startTime = new DateTime(entry.getStart().getTime());
                 startTime = startTime.plusHours(sTimeDiff);
                 System.out.println("Processing toggl entry #" + i + " of " + totalCount + ": ");
@@ -337,7 +305,7 @@ public class Main {
                 Issue issue = null;
                 if(issueKey == null){
                     // no issue could be matched, ask the user what to do
-                    createNewIssue = askForCreationOfNewIssue(descriptionWithoutIssueKey);
+                    if(!autoMigrate) createNewIssue = askForCreationOfNewIssue(descriptionWithoutIssueKey);
                 }
                 else {
                     try {
@@ -345,7 +313,11 @@ public class Main {
                     } catch (JiraException ex) {
                         System.out.println(ex.getMessage());
                         // issue does probably not exist, create an issue with that number?
-                        createNewIssue = askForCreationOfNewIssue(issueKey, descriptionWithoutIssueKey);
+                        if(descriptionWithoutIssueKey != null && descriptionWithoutIssueKey.length() > 0){ // if we have a description without the usue key alone we set it as new description
+                            entry.setDescription(descriptionWithoutIssueKey);
+                        }
+
+                        if(!autoMigrate) createNewIssue = askForCreationOfNewIssue(issueKey, descriptionWithoutIssueKey);
                     }
                 }
 
@@ -362,34 +334,70 @@ public class Main {
                     }
                 }
                 if(issue == null && !createNewIssue){
-                    issue = askForIssue(sJira);
+                    if(autoMigrate){
+                        malformedEntries.add(entry);
+                        malformedIndex.add(i);
+                    }
+                    else {
+                        issue = askForIssue(sJira);
+                    }
+
                 }
                 if(issue != null) {
-                    long timeSpentSeconds = entry.getDuration();// ((int) end.getTime() / 1000) - ((int) start.getTime() / 1000);
-                    //System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
-                    if(UPDATE_TOGGL_PROJECT){
-                        updateTogglEntry(entry, issue);
-                    }
-                    createWorklog(issue, descriptionWithoutIssueKey, startTime, timeSpentSeconds);
+                    updateTogglAndCreateWorklog(entry, startTime, descriptionWithoutIssueKey, issue, autoMigrate);
                 }
                 else {
                     System.out.println("WARNING: Skipped worklog...");
                     skipped++;
                 }
                 System.out.println("-------------------------------------");
-                //break; //TODO: only for testing
+            }
+            if(autoMigrate && malformedEntries.size() > 0) {
+                System.out.println("Going now through #" + malformedEntries.size() + " issues with missing or wrong Issue key");
+                Issue issue = null;
+                System.out.println("-------------------------------------");
+                int j = 0;
+                for(TimeEntry entry: malformedEntries){
+                    System.out.println("Processing toggl entry #" + malformedIndex.get(j) + " of " + totalCount + "");
+                    System.out.println("Description: " + entry.getDescription());
+                    issue = askForIssue(sJira);
+                    if(issue != null) {
+                        DateTime startTime = new DateTime(entry.getStart().getTime());
+                        updateTogglAndCreateWorklog(entry, startTime, entry.getDescription(), issue, false);
+                        skipped--;
+                    }
+                    else {
+                        System.out.println("WARNING: Skipped worklog...");
+                    }
+                    j++;
+                    System.out.println("-------------------------------------");
+                }
+
             }
 
             System.out.println("Done...");
             System.out.println("Created: "+ created);
             System.out.println("Errors: "+ errors);
             System.out.println("Skipped: "+ skipped);
-
+            System.out.println("skippedExcludedProjectWorklog " + skippedExcludedProjectWorklog);
 
         } catch (JiraException ex) {
             ex.printStackTrace();
         }
 
+    }
+
+    private static String getHumanReadableDateTimeString(DateTime dateTime) {
+        return String.format("%02d-%02d-%04d", dateTime.getDayOfMonth(), dateTime.getMonthOfYear(), dateTime.getYear()); // dd-MM-yyyy
+    }
+
+    private static void updateTogglAndCreateWorklog(TimeEntry entry, DateTime startTime, String descriptionWithoutIssueKey, Issue issue, boolean autoMigrate) {
+        long timeSpentSeconds = entry.getDuration();// ((int) end.getTime() / 1000) - ((int) start.getTime() / 1000);
+        //System.out.println("Would create worklog with: issue " + issue.getKey() + " timeSpent " + timeSpentSeconds + " timeStarted " + entry.getStart() + " desc: " + descriptionWithoutIssueKey);
+        if(UPDATE_TOGGL_PROJECT){
+            updateTogglEntry(entry, issue);
+        }
+        createWorklog(issue, descriptionWithoutIssueKey, startTime, timeSpentSeconds, autoMigrate);
     }
 
     private static void updateTogglEntry(TimeEntry entry, Issue issue) {
@@ -398,15 +406,16 @@ public class Main {
             net.rcarz.jiraclient.Project jiraProject = issue.getProject();
             String key = jiraProject.getKey();
             String description = jiraProject.getDescription();
-            togglProject = findTogglProjectByKey(key);
-            if(togglProject == null){
+            Project togglProjectExtracted = findTogglProjectByKey(key);
+            if(togglProjectExtracted == null){
                 togglProject = createTogglProject(key + description);
                 entry.setProject(togglProject);
             }
-            if(togglProject != null){
-              entry.setProject(togglProject);
-              jToggl.updateTimeEntry(entry);
-            }
+        }
+
+        if(togglProject != null){
+            entry.setProject(togglProject);
+            jToggl.updateTimeEntry(entry);
         }
     }
 
@@ -431,33 +440,43 @@ public class Main {
         return null;
     }
 
-    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, DateTime start, long timeSpentSeconds) {
+    private static void createWorklog(Issue issue, String descriptionWithoutIssueKey, DateTime start, long timeSpentSeconds, boolean autoMigrate) {
         if(descriptionWithoutIssueKey == null || descriptionWithoutIssueKey.equals("")){
             descriptionWithoutIssueKey = "Working on " + issue.getKey();
         }
-        if(timeSpentSeconds % 60 != 0) {
-            // no full minute -> round up
-            timeSpentSeconds += 60 - (timeSpentSeconds % 60);
+        if(timeSpentSeconds <= 59){
+            timeSpentSeconds = 60;
         }
+//        if (timeSpentSeconds % 60 != 0) {
+//            // no full minute -> round up
+//            timeSpentSeconds += 60 - (timeSpentSeconds % 60);
+//        }
         System.out.println("Creating worklog with: issue " + issue.getKey() + " timeSpentInMinutes " + timeSpentSeconds / 60 + " timeStarted " + start + " desc: " + descriptionWithoutIssueKey);
 
         if(start == null){
-            System.out.println("Warning: no starttime set for issue...");
+            System.out.println("ERROR: no starttime set for issue!");
+            errors++;
+            return;
         }
 
         try {
-            System.out.println("Do you want to create this worklog in Jira (y) or skip it (n)?");
-            if(askForYesOrNo()){
+            if(autoMigrate){
                 WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
                 System.out.println("Created worklog " + worklog.getComment() + ", started: " + worklog.getStarted() + ", timespent: " + worklog.getTimeSpent() );
-                //System.out.println("Created worklog (NOT EXECUTED)!");
                 created++;
             }
             else {
-                System.out.println("Skipped worklog");
-                skipped++;
+                System.out.println("Do you want to create this worklog in Jira (y) or skip it (n)?");
+                if(askForYesOrNo()){
+                    WorkLog worklog = issue.createWorkLog(descriptionWithoutIssueKey, start, timeSpentSeconds);
+                    System.out.println("Created worklog " + worklog.getComment() + ", started: " + worklog.getStarted() + ", timespent: " + worklog.getTimeSpent() );
+                    created++;
+                }
+                else {
+                    System.out.println("Skipped worklog");
+                    skipped++;
+                }
             }
-
 
         } catch (JiraException ex) {
             ex.printStackTrace();
@@ -593,5 +612,65 @@ public class Main {
             sProjects = jToggl.getProjects();
         }
         return sProjects;
+    }
+
+
+    private static void performDeleteDuplicateWorklogs(DateTime timeStarting, DateTime timeEnding) {
+
+        String startDate = String.format("%04d-%02d-%02d", timeStarting.getYear(), timeStarting.getMonthOfYear(), timeStarting.getDayOfMonth()); // yyyy-MM-dd
+        String endDate = String.format("%04d-%02d-%02d", timeEnding.getYear(), timeEnding.getMonthOfYear(), timeEnding.getDayOfMonth()); // yyyy-MM-dd
+        String startDateHumanReadable = getHumanReadableDateTimeString(timeStarting);
+        String endDateHumanReadable = getHumanReadableDateTimeString(timeEnding);
+        System.out.println("Deleting worklogs for timespan (" + startDateHumanReadable + " to " + endDateHumanReadable +")");
+        System.out.println("Do you want to continue yes (y) or no (n)");
+        if(!askForYesOrNo()){
+            System.out.println("exiting");
+            return;
+        }
+
+        skipTheRest = false;
+        int count = 1;
+        int deleted = 0, errorsDeleting = 0;
+        try {
+            System.out.println("fetching worklogs for july");
+            RestClient restClient = sJira.getRestClient();
+            List<TempoWorkLog> worklogs = Tempo.getWorklogs(restClient, startDate, endDate, "priegler"); // yyyy-MM-dd
+
+            if (worklogs != null) {
+                for (int i = 0; i < worklogs.size() - 1; i++) {
+                    TempoWorkLog workLog1 = worklogs.get(i);
+                    TempoWorkLog workLog2 = worklogs.get(i + 1);
+
+                    if (workLog1.isDuplicate(workLog2)) {
+                        System.out.println(workLog1.getComment() + " == " + workLog2.getComment());
+                        System.out.println("Deleting duplicated worklog " + workLog2);
+                        boolean wasDeleted = Tempo.deleteWorklog(restClient, ""+workLog2.getId());
+                        if(wasDeleted){
+                            System.out.println("deleted!");
+                            deleted++;
+                        }
+                        else {
+                            System.out.println("An error occurred while deleting worklog: " + workLog2);
+                            errorsDeleting++;
+                        }
+                    }
+                    count++;
+                }
+            }
+
+        } catch (JiraException e) {
+            e.printStackTrace();
+        }
+        System.out.println("processed: #" + count);
+        System.out.println("deleted: #" + deleted);
+        System.out.println("errorsDeleting: #" + errorsDeleting);
+
+    }
+
+    private static boolean isExcludedProject(TimeEntry entry) {
+        if(entry == null || entry.getProject() == null) {
+            return false;
+        }
+        return sProjectsToIgnore.contains(entry.getProject().getName());
     }
 }
